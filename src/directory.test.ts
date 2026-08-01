@@ -256,6 +256,34 @@ describe('compileSchemasFromDirectory', () => {
     await expect(Fs.readFile(manifestPath, 'utf8')).resolves.toContain('"state": "complete"');
   });
 
+  it('renames collisions deterministically and reuses the manifest mapping', async () => {
+    await writeSchema('root.json', { title: 'Root', type: 'string' });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const untrackedPath = Path.join(outputDirectory, 'root.d.ts');
+    const renamedPath = Path.join(outputDirectory, 'root.1.d.ts');
+    const options = {
+      schemaDirectory: Path.join(testDirectory, 'schemas'),
+      outputDirectory,
+      outputCollision: 'rename' as const,
+    };
+
+    await Fs.mkdir(outputDirectory, { recursive: true });
+    await Fs.writeFile(untrackedPath, 'export type Handwritten = true;\n');
+
+    const firstResult = await generateTypesFromDirectory(options);
+    const secondResult = await generateTypesFromDirectory(options);
+
+    expect(firstResult.files[0]).toMatchObject({
+      declarationPath: renamedPath,
+      status: 'created',
+    });
+    expect(secondResult.files[0]).toMatchObject({
+      declarationPath: renamedPath,
+      status: 'unchanged',
+    });
+    await expect(Fs.readFile(untrackedPath, 'utf8')).resolves.toContain('Handwritten');
+  });
+
   it('does not touch the output directory when compilation fails', async () => {
     await writeSchema('root.json', { $ref: './missing.json' });
     const outputDirectory = Path.join(testDirectory, 'types');

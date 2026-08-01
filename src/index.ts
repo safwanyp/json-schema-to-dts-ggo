@@ -8,6 +8,7 @@ export type {
   DirectoryGenerationResult,
   GeneratedDeclarationFile,
   GeneratedDeclarationStatus,
+  OutputCollisionPolicy,
 } from './directory';
 export type { JSONSchema7Type as JSONValue } from './types';
 export type { CoreSchemaMetaSchema };
