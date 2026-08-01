@@ -45,6 +45,7 @@ export class ParserContext implements IParserContext {
   readonly schemasByUri = new Map<string, CoreSchemaMetaSchema>();
   readonly nodesByUri = new Map<string, ISchemaNode>();
   readonly references = new Set<IReference>();
+  private readonly schemaLocationsById = new Map<string, string>();
 
   constructor(options: ParserContextOptions) {
     this.defaultUnknownPropertiesSchema = options.defaultUnknownPropertiesSchema;
@@ -124,6 +125,19 @@ export class ParserContext implements IParserContext {
 
     if (typeof schema !== 'boolean' && schema.$id) {
       this.baseUri = resolveRelativeUri(baseUri, schema.$id);
+
+      const existingUri = this.schemaLocationsById.get(this.baseUri);
+
+      if (existingUri && existingUri !== this.uri) {
+        this.addDiagnostic({
+          code: 'EDUPLICATEID',
+          message: `The schema id ${JSON.stringify(this.baseUri)} is declared by both ${JSON.stringify(
+            existingUri
+          )} and ${JSON.stringify(this.uri)}.`,
+        });
+      } else {
+        this.schemaLocationsById.set(this.baseUri, this.uri);
+      }
 
       // The schema indicated that it wants to treat this as a 'location-independent' uri
       this.schemasByUri.set(this.baseUri, schema);

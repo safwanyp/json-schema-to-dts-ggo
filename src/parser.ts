@@ -106,7 +106,7 @@ export class Parser {
   }
 
   compile(options: ParserCompileOptions = {}) {
-    const diagnostics = this.checkReferences();
+    const diagnostics = [...this.ctx.diagnostics, ...this.checkReferences()];
     const text = this.generateTypings(options);
 
     return {

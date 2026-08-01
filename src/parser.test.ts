@@ -186,4 +186,26 @@ describe('A Parser instance', () => {
     expect(result.text).toContain('export type Root = boolean;');
     expect(result.text).not.toContain('UnusedDefinition');
   });
+
+  it('reports schemas that declare the same resolved id', () => {
+    const parser = new Parser();
+
+    parser.addSchema('file:///first.json', {
+      $id: 'https://example.com/shared',
+      type: 'string',
+    });
+    parser.addSchema('file:///second.json', {
+      $id: 'https://example.com/shared',
+      type: 'number',
+    });
+
+    expect(parser.compile().diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'EDUPLICATEID',
+        severity: ParserDiagnosticKind.Error,
+        uri: 'file:///second.json',
+        baseUri: 'https://example.com/shared',
+      })
+    );
+  });
 });
