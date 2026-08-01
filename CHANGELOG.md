@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+
+- Add `generateTypesFromDirectory` for generating self-contained declaration files from glob-matched JSON Schemas, with manifest-owned cleanup and collision handling.
+
 ### Changed
+
 - [SEMVER MAJOR] Deprecate support for node versions earlier than Node 16. Supported versions are now 16, 18 and 20.
 
 ### Fixed
