@@ -1,7 +1,11 @@
 import { promises as Fs } from 'fs';
 import { tmpdir } from 'os';
 import * as Path from 'path';
-import { compileSchemasFromDirectory, DirectoryGenerationError } from './directory';
+import {
+  compileSchemasFromDirectory,
+  DirectoryGenerationError,
+  generateTypesFromDirectory,
+} from './directory';
 
 describe('compileSchemasFromDirectory', () => {
   let testDirectory: string;
@@ -127,5 +131,95 @@ describe('compileSchemasFromDirectory', () => {
     ).rejects.toMatchObject<Partial<DirectoryGenerationError>>({
       issues: [expect.objectContaining({ code: 'EDUPLICATEID' })],
     });
+  });
+
+  it('writes declarations and skips unchanged files on later runs', async () => {
+    const schemaPath = await writeSchema('nested/root.schema.json', {
+      title: 'Root',
+      type: 'string',
+    });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const options = {
+      schemaDirectory: Path.join(testDirectory, 'schemas'),
+      outputDirectory,
+      schemaGlob: '**/*.schema.json',
+    };
+
+    const firstResult = await generateTypesFromDirectory(options);
+    const declarationPath = Path.join(outputDirectory, 'nested', 'root.schema.d.ts');
+
+    expect(firstResult).toMatchObject({
+      files: [
+        {
+          schemaPath,
+          declarationPath,
+          typeName: 'Root',
+          status: 'created',
+        },
+      ],
+      diagnostics: [],
+      removedFiles: [],
+    });
+    await expect(Fs.readFile(declarationPath, 'utf8')).resolves.toContain(
+      'export type Root = string;',
+    );
+
+    const firstStats = await Fs.stat(declarationPath);
+    const secondResult = await generateTypesFromDirectory(options);
+    const secondStats = await Fs.stat(declarationPath);
+
+    expect(secondResult.files[0].status).toBe('unchanged');
+    expect(secondStats.mtimeMs).toBe(firstStats.mtimeMs);
+
+    await Fs.writeFile(declarationPath, 'manually changed');
+
+    const thirdResult = await generateTypesFromDirectory(options);
+
+    expect(thirdResult.files[0].status).toBe('updated');
+    await expect(Fs.readFile(declarationPath, 'utf8')).resolves.toContain(
+      'export type Root = string;',
+    );
+  });
+
+  it('rejects untracked output collisions before writing', async () => {
+    await writeSchema('root.json', { type: 'string' });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const declarationPath = Path.join(outputDirectory, 'root.d.ts');
+
+    await Fs.mkdir(outputDirectory, { recursive: true });
+    await Fs.writeFile(declarationPath, 'export type Handwritten = true;\n');
+
+    await expect(
+      generateTypesFromDirectory({
+        schemaDirectory: Path.join(testDirectory, 'schemas'),
+        outputDirectory,
+      }),
+    ).rejects.toMatchObject<Partial<DirectoryGenerationError>>({
+      issues: [expect.objectContaining({ code: 'EOUTPUTCOLLISION' })],
+    });
+    await expect(Fs.readFile(declarationPath, 'utf8')).resolves.toBe(
+      'export type Handwritten = true;\n',
+    );
+    await expect(
+      Fs.access(Path.join(outputDirectory, '.json-schema-to-dts-manifest.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not touch the output directory when compilation fails', async () => {
+    await writeSchema('root.json', { $ref: './missing.json' });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const unrelatedPath = Path.join(outputDirectory, 'handwritten.d.ts');
+
+    await Fs.mkdir(outputDirectory, { recursive: true });
+    await Fs.writeFile(unrelatedPath, 'unchanged');
+
+    await expect(
+      generateTypesFromDirectory({
+        schemaDirectory: Path.join(testDirectory, 'schemas'),
+        outputDirectory,
+      }),
+    ).rejects.toBeInstanceOf(DirectoryGenerationError);
+    await expect(Fs.readFile(unrelatedPath, 'utf8')).resolves.toBe('unchanged');
+    await expect(Fs.readdir(outputDirectory)).resolves.toEqual(['handwritten.d.ts']);
   });
 });
