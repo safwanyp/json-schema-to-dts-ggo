@@ -21,7 +21,7 @@ import { IReference } from './references';
 import { CoreSchemaMetaSchema } from './schema';
 import { JSONSchema7, JSONSchema7Definition, JSONSchema7TypeName } from './types';
 
-interface ParserCompileOptions {
+export interface ParserCompileOptions {
   /**
    * The type name for schemas that are functionally equivalent to TypeScript's `any`
    * or `unknown` type.
@@ -50,7 +50,7 @@ interface ParserCompileOptions {
   ): boolean;
 }
 
-interface ParserCompileTypeOptions {
+export interface ParserCompileTypeOptions {
   hasDeclareKeyword?: boolean;
   isExported?: boolean;
 }
