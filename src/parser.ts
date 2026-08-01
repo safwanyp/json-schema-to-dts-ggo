@@ -107,7 +107,10 @@ export class Parser {
 
   compile(options: ParserCompileOptions = {}) {
     const diagnostics = [...this.ctx.diagnostics, ...this.checkReferences()];
-    const text = this.generateTypings(options);
+    const hasErrors = diagnostics.some(
+      (diagnostic) => diagnostic.severity === ParserDiagnosticKind.Error
+    );
+    const text = hasErrors ? '' : this.generateTypings(options);
 
     return {
       diagnostics,

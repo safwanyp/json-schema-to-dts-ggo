@@ -208,4 +208,20 @@ describe('A Parser instance', () => {
       })
     );
   });
+
+  it('returns unresolved reference diagnostics without attempting to emit types', () => {
+    const parser = new Parser();
+
+    parser.addSchema('file:///root.json', { $ref: './missing.json' });
+
+    const result = parser.compile();
+
+    expect(result.text).toBe('');
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'EUNRESOLVED',
+        severity: ParserDiagnosticKind.Error,
+      })
+    );
+  });
 });
