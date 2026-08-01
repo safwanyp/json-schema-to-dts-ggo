@@ -175,6 +175,7 @@ export async function compileSchemasFromDirectory(
       for (const schema of schemasInRegistrationOrder) {
         const registeredName = parser.addSchema(schema.uri, schema.schema, {
           isRoot: schema === rootSchema,
+          preferredName: getDirectorySchemaPreferredName(schema),
         });
 
         if (schema === rootSchema) {
@@ -768,6 +769,14 @@ function isSchemaRoot(value: unknown): value is JSONSchema7Definition {
     typeof value === 'boolean' ||
     (typeof value === 'object' && value !== null && !Array.isArray(value))
   );
+}
+
+function getDirectorySchemaPreferredName(schema: LoadedSchema) {
+  if (typeof schema.schema !== 'boolean' && schema.schema.title) {
+    return;
+  }
+
+  return Path.basename(schema.relativeSchemaPath).replace(/\.[\w.]+$/, '');
 }
 
 function isPathWithin(relativePath: string) {
