@@ -141,4 +141,49 @@ describe('A Parser instance', () => {
     expect(typeName1).toBe('MyType');
     expect(typeName2).toBe('MyType0');
   });
+
+  it('can register a schema for reference resolution without emitting it as a root', () => {
+    const parser = new Parser();
+
+    parser.addSchema(
+      'file:///definitions.json',
+      {
+        title: 'ReferencedDefinition',
+        type: 'string',
+      },
+      { isRoot: false }
+    );
+    parser.addSchema('file:///root.json', {
+      title: 'Root',
+      $ref: './definitions.json',
+    });
+
+    const result = parser.compile();
+
+    expect(result.diagnostics).toHaveLength(0);
+    expect(result.text).toContain('export type Root = ReferencedDefinition;');
+    expect(result.text).toContain('export type ReferencedDefinition = string;');
+  });
+
+  it('does not emit an unreferenced schema registered as a non-root', () => {
+    const parser = new Parser();
+
+    parser.addSchema(
+      'file:///definitions.json',
+      {
+        title: 'UnusedDefinition',
+        type: 'string',
+      },
+      { isRoot: false }
+    );
+    parser.addSchema('file:///root.json', {
+      title: 'Root',
+      type: 'boolean',
+    });
+
+    const result = parser.compile();
+
+    expect(result.text).toContain('export type Root = boolean;');
+    expect(result.text).not.toContain('UnusedDefinition');
+  });
 });

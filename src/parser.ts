@@ -55,7 +55,13 @@ interface ParserCompileTypeOptions {
   isExported?: boolean;
 }
 
-interface AddSchemaOptions {
+export interface AddSchemaOptions {
+  /**
+   * Whether this schema should be emitted as a top-level type during compilation.
+   * Schemas registered only for reference resolution can set this to `false`.
+   */
+  isRoot?: boolean;
+
   preferredName?: string;
 }
 
@@ -91,7 +97,10 @@ export class Parser {
   addSchema(uri: string, schema: JSONSchema7Definition, options: AddSchemaOptions = {}) {
     const node = this.ctx.enterUri(uri, schema, parseSchemaDefinition);
     const name = this.generateDeconflictedName(node, { preferredName: options.preferredName });
-    this.rootNodes.set(uri, node);
+
+    if (options.isRoot ?? true) {
+      this.rootNodes.set(uri, node);
+    }
 
     return name;
   }
