@@ -73,7 +73,9 @@ interface ManifestFile {
 
 interface GenerationManifest {
   version: 1;
+  state: 'complete' | 'pending';
   files: ManifestFile[];
+  previousFiles?: ManifestFile[];
 }
 
 interface PlannedWrite extends CompiledDirectoryFile {
@@ -236,8 +238,12 @@ export async function generateTypesFromDirectory(
   const manifestPath = Path.join(outputDirectory, MANIFEST_FILE_NAME);
   const previousManifest = await readManifest(manifestPath, outputDirectory);
   const previousFiles = previousManifest?.files ?? [];
+  const previouslyOwnedFiles = [
+    ...previousFiles,
+    ...(previousManifest?.state === 'pending' ? previousManifest.previousFiles ?? [] : []),
+  ];
   const ownedDeclarationPaths = new Set(
-    previousFiles.map((file) => normalizedPathKey(file.declarationPath)),
+    previouslyOwnedFiles.map((file) => normalizedPathKey(file.declarationPath)),
   );
   const previousFileBySchemaPath = new Map(
     previousFiles.map((file) => [file.schemaPath, file] as const),
@@ -302,28 +308,59 @@ export async function generateTypesFromDirectory(
     schemaPath: file.relativeSchemaPath,
     declarationPath: file.relativeDeclarationPath,
   }));
+  const currentDeclarationPaths = new Set(
+    manifestFiles.map((file) => normalizedPathKey(file.declarationPath)),
+  );
+  const staleFiles = deduplicateManifestFiles(previouslyOwnedFiles).filter(
+    (file) => !currentDeclarationPaths.has(normalizedPathKey(file.declarationPath)),
+  );
   const completeManifest: GenerationManifest = {
     version: MANIFEST_VERSION,
+    state: 'complete',
     files: manifestFiles,
   };
   const changedWrites = plannedWrites.filter((file) => file.status !== 'unchanged');
-  const manifestIsCurrent = JSON.stringify(previousManifest) === JSON.stringify(completeManifest);
+  const manifestIsCurrent =
+    previousManifest?.state === 'complete' &&
+    JSON.stringify(previousManifest) === JSON.stringify(completeManifest);
 
-  if (!changedWrites.length && manifestIsCurrent) {
+  if (!changedWrites.length && !staleFiles.length && manifestIsCurrent) {
     return toGenerationResult(plannedWrites, compilation.diagnostics, []);
   }
 
+  const pendingManifest: GenerationManifest = {
+    ...completeManifest,
+    state: 'pending',
+    previousFiles: deduplicateManifestFiles(previouslyOwnedFiles),
+  };
+
   try {
     await Fs.mkdir(outputDirectory, { recursive: true });
+    await writeFileAtomically(manifestPath, formatManifest(pendingManifest));
 
     for (const file of changedWrites) {
       await Fs.mkdir(Path.dirname(file.declarationPath), { recursive: true });
       await writeFileAtomically(file.declarationPath, file.text);
     }
 
+    const removedFiles: string[] = [];
+
+    for (const staleFile of staleFiles) {
+      const stalePath = Path.resolve(outputDirectory, staleFile.declarationPath);
+
+      try {
+        await Fs.unlink(stalePath);
+        removedFiles.push(stalePath);
+      } catch (error) {
+        if (!isNodeError(error, 'ENOENT')) {
+          throw error;
+        }
+      }
+    }
+
     await writeFileAtomically(manifestPath, formatManifest(completeManifest));
 
-    return toGenerationResult(plannedWrites, compilation.diagnostics, []);
+    return toGenerationResult(plannedWrites, compilation.diagnostics, removedFiles);
   } catch (error) {
     if (error instanceof DirectoryGenerationError) {
       throw error;
@@ -370,7 +407,7 @@ async function readManifest(
       throw new Error('The manifest has an unsupported or invalid structure.');
     }
 
-    for (const file of manifest.files) {
+    for (const file of [...manifest.files, ...(manifest.previousFiles ?? [])]) {
       if (!isSafeRelativePath(file.schemaPath) || !isSafeDeclarationPath(file.declarationPath)) {
         throw new Error('The manifest contains a path outside its configured directories.');
       }
@@ -404,8 +441,11 @@ function isGenerationManifest(value: unknown): value is GenerationManifest {
 
   return (
     manifest.version === MANIFEST_VERSION &&
+    (manifest.state === 'complete' || manifest.state === 'pending') &&
     Array.isArray(manifest.files) &&
-    manifest.files.every(isManifestFile)
+    manifest.files.every(isManifestFile) &&
+    (typeof manifest.previousFiles === 'undefined' ||
+      (Array.isArray(manifest.previousFiles) && manifest.previousFiles.every(isManifestFile)))
   );
 }
 
@@ -533,6 +573,16 @@ function isSafeDeclarationPath(path: string) {
 
 function normalizedPathKey(path: string) {
   return toPosixPath(path).toLowerCase();
+}
+
+function deduplicateManifestFiles(files: ManifestFile[]) {
+  const uniqueFiles = new Map<string, ManifestFile>();
+
+  for (const file of files) {
+    uniqueFiles.set(normalizedPathKey(file.declarationPath), file);
+  }
+
+  return [...uniqueFiles.values()];
 }
 
 function formatManifest(manifest: GenerationManifest) {

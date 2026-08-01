@@ -205,6 +205,57 @@ describe('compileSchemasFromDirectory', () => {
     ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('removes stale manifest-owned files and preserves unrelated output', async () => {
+    await writeSchema('first.json', { type: 'string' });
+    const removedSchemaPath = await writeSchema('second.json', { type: 'number' });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const options = {
+      schemaDirectory: Path.join(testDirectory, 'schemas'),
+      outputDirectory,
+    };
+
+    await generateTypesFromDirectory(options);
+    const unrelatedPath = Path.join(outputDirectory, 'handwritten.d.ts');
+    const staleDeclarationPath = Path.join(outputDirectory, 'second.d.ts');
+
+    await Fs.writeFile(unrelatedPath, 'export type Handwritten = true;\n');
+    await Fs.unlink(removedSchemaPath);
+
+    const result = await generateTypesFromDirectory(options);
+
+    expect(result.removedFiles).toEqual([staleDeclarationPath]);
+    await expect(Fs.readFile(unrelatedPath, 'utf8')).resolves.toContain('Handwritten');
+    await expect(Fs.access(staleDeclarationPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('recovers files tracked by an interrupted pending manifest', async () => {
+    await writeSchema('root.json', { title: 'Root', type: 'string' });
+    const outputDirectory = Path.join(testDirectory, 'types');
+    const declarationPath = Path.join(outputDirectory, 'root.d.ts');
+    const manifestPath = Path.join(outputDirectory, '.json-schema-to-dts-manifest.json');
+    const options = {
+      schemaDirectory: Path.join(testDirectory, 'schemas'),
+      outputDirectory,
+    };
+
+    await generateTypesFromDirectory(options);
+    const manifest = JSON.parse(await Fs.readFile(manifestPath, 'utf8'));
+
+    await Fs.writeFile(
+      manifestPath,
+      JSON.stringify({ ...manifest, state: 'pending', previousFiles: manifest.files }),
+    );
+    await Fs.unlink(declarationPath);
+
+    const result = await generateTypesFromDirectory(options);
+
+    expect(result.files[0].status).toBe('created');
+    await expect(Fs.readFile(declarationPath, 'utf8')).resolves.toContain(
+      'export type Root = string;',
+    );
+    await expect(Fs.readFile(manifestPath, 'utf8')).resolves.toContain('"state": "complete"');
+  });
+
   it('does not touch the output directory when compilation fails', async () => {
     await writeSchema('root.json', { $ref: './missing.json' });
     const outputDirectory = Path.join(testDirectory, 'types');
